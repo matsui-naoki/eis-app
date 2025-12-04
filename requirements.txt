@@ -1,0 +1,20 @@
+# EIS Analyzer Requirements
+
+# Web framework
+streamlit>=1.28.0
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# Plotting
+plotly>=5.17.0
+matplotlib>=3.7.0
+
+# EIS fitting - main library
+impedance>=1.7.1
+
+# Optional (for advanced features)
+# umap-learn>=0.5.3       # For clustering
+# optuna>=3.0.0           # For black-box optimization
