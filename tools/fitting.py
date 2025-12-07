@@ -981,7 +981,8 @@ class BlackBoxOptEIS:
             ]
         else:
             # Generic model - build initial guess from best_params using parameter names
-            # Note: best_params keys are like 'R1', 'CPE1_0' and values may be log10 values
+            # Note: In _objective, suggest_log_float returns actual values (not log10)
+            # So best_params values are actual parameter values, not log10
             try:
                 from impedance.models.circuits import CustomCircuit
                 n_params = calculateCircuitLength(model)
@@ -990,43 +991,24 @@ class BlackBoxOptEIS:
 
                 initial_guess = []
                 for pname in param_names:
-                    # Check if parameter is in best_params (values are stored as log10)
+                    # Check if parameter is in best_params
+                    # Values from suggest_log_float are actual values (not log10)
                     if pname in self.best_params:
-                        # Convert from log10 to actual value
-                        initial_guess.append(10 ** self.best_params[pname])
+                        initial_guess.append(self.best_params[pname])
                     elif 'CPE' in pname and '_1' in pname:  # CPE alpha
                         initial_guess.append(0.9)
                     elif 'CPE' in pname and '_0' in pname:  # CPE Q
-                        # Try to find corresponding CPE Q in best_params
-                        if pname in self.best_params:
-                            initial_guess.append(10 ** self.best_params[pname])
-                        else:
-                            initial_guess.append(1e-9)
+                        initial_guess.append(1e-9)
                     elif 'W' in pname:  # Warburg
-                        if pname in self.best_params:
-                            initial_guess.append(10 ** self.best_params[pname])
-                        else:
-                            initial_guess.append(1e-3)
+                        initial_guess.append(1e-3)
                     elif 'L' in pname:  # Inductor
-                        if pname in self.best_params:
-                            initial_guess.append(10 ** self.best_params[pname])
-                        else:
-                            initial_guess.append(1e-6)
+                        initial_guess.append(1e-6)
                     elif 'C' in pname and 'CPE' not in pname:  # Capacitor
-                        if pname in self.best_params:
-                            initial_guess.append(10 ** self.best_params[pname])
-                        else:
-                            initial_guess.append(1e-9)
+                        initial_guess.append(1e-9)
                     elif 'R' in pname:  # Resistor
-                        if pname in self.best_params:
-                            initial_guess.append(10 ** self.best_params[pname])
-                        else:
-                            initial_guess.append(1e4)
+                        initial_guess.append(1e4)
                     else:
-                        if pname in self.best_params:
-                            initial_guess.append(10 ** self.best_params[pname])
-                        else:
-                            initial_guess.append(1.0)
+                        initial_guess.append(1.0)
             except Exception:
                 # Fallback
                 n_params = calculateCircuitLength(model)
