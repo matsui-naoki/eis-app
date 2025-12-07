@@ -909,18 +909,32 @@ class BlackBoxOptEIS:
             for model in self.model_list:
                 for weight in self.weight_list:
                     # Try a few random initial guesses
-                    for _ in range(10):
+                    for _ in range(20):
                         if model == 'p(R1,CPE1)-CPE2':
                             r1 = np.random.uniform(np.log10(self.r_range[0]), np.log10(self.r_range[1]))
                             cpe1 = np.random.uniform(np.log10(self.cpe_q_range[0]), np.log10(self.cpe_q_range[1]))
-                            initial_guess = [10**r1, 10**cpe1, 0.9, 1e-6, 0.9]
+                            cpe2 = np.random.uniform(np.log10(self.cpe_q_range[0]), np.log10(self.cpe_q_range[1]))
+                            initial_guess = [10**r1, 10**cpe1, 0.9, 10**cpe2, 0.9]
+                            params = {'model': model, 'weight': weight, 'r1': r1, 'cpe1': cpe1, 'cpe2': cpe2}
+                        elif model == 'p(R1,CPE1)-p(R2,CPE2)-CPE3':
+                            r1 = np.random.uniform(np.log10(self.r_range[0]), np.log10(self.r_range[1]))
+                            r2 = np.random.uniform(np.log10(self.r_range[0]), np.log10(self.r_range[1]))
+                            cpe1 = np.random.uniform(np.log10(self.cpe_q_range[0]), np.log10(self.cpe_q_range[1]))
+                            cpe2 = np.random.uniform(np.log10(self.cpe_q_range[0]), np.log10(self.cpe_q_range[1]))
+                            cpe3 = np.random.uniform(np.log10(self.cpe_q_range[0]), np.log10(self.cpe_q_range[1]))
+                            initial_guess = [10**r1, 10**cpe1, 0.9, 10**r2, 10**cpe2, 0.9, 10**cpe3, 0.9]
+                            params = {'model': model, 'weight': weight, 'r1': r1, 'r2': r2, 'cpe1': cpe1, 'cpe2': cpe2, 'cpe3': cpe3}
                         else:
+                            # Generic model - skip for fallback
                             continue
 
-                        circuit, Z_fit, rmspe = self._fit_circuit(model, initial_guess, weight)
-                        if rmspe < best_rmspe:
-                            best_rmspe = rmspe
-                            best_params = {'model': model, 'weight': weight, 'r1': initial_guess[0], 'cpe1': initial_guess[1]}
+                        try:
+                            circuit, Z_fit, rmspe = self._fit_circuit(model, initial_guess, weight)
+                            if rmspe < best_rmspe:
+                                best_rmspe = rmspe
+                                best_params = params
+                        except Exception:
+                            continue
 
             self.best_params = best_params
             self.best_rmspe = best_rmspe
