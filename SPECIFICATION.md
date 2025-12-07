@@ -1,7 +1,7 @@
 # EIS Analyzer - 詳細仕様書
 
-Version: 0.1 (Beta)
-Last Updated: 2025-12-03
+Version: 0.2 (Beta)
+Last Updated: 2025-12-07
 Created with: Claude Code
 
 ---
@@ -17,7 +17,8 @@ EIS Analyzerは、電気化学インピーダンス分光法（Electrochemical I
 3. 等価回路モデルによるフィッティング
 4. イオン伝導率の計算
 5. 多点（多温度）解析
-6. セッションデータの保存・読み込み
+6. マッピング解析（1D, 2D, Ternary）
+7. セッションデータの保存・読み込み
 
 ### 1.3 技術スタック
 - **フロントエンド**: Streamlit 1.28+
@@ -205,6 +206,18 @@ eisanalyzer/
   - Total: 全導電率
   - Bulk: バルク導電率
   - GB: 粒界導電率
+
+**Mapping線図**（Mappingモード時のみ）:
+- **1D**: 位置 vs 伝導率
+  - 折れ線 + マーカー
+  - 軸範囲・ラベルのカスタマイズ
+  - Log スケール対応
+- **2D**: ヒートマップ/等高線図
+  - scipy griddata による補間
+  - 複数カラースケール（Jet, Viridis等）
+- **Ternary**: 3成分組成三角図
+  - 自動下付き文字（Li7 → Li₇）
+  - 補間塗りつぶし
 
 **実装**: `main_panel_plots()` 関数、`components/plots.py`
 
@@ -592,6 +605,8 @@ Frequency    Z'    Z''    ...
 ## 10. 将来の拡張
 
 ### 10.1 短期的な改善
+- [x] マッピング機能（1D, 2D, Ternary）
+- [x] 3モード切り替え（Nyquist/Arrhenius/Mapping）
 - [ ] セッション読み込み機能（JSONファイルからの復元）
 - [ ] 解析範囲の選択（周波数範囲のスライダー）
 - [ ] ファイルの並び替え（ドラッグ&ドロップ）

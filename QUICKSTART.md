@@ -179,6 +179,42 @@ streamlit run app.py --server.port 8502
 
 ---
 
+## マッピング解析（Mapping Mode）
+
+### ステップ1: Mappingモードを選択
+
+Analysis Modeで「Mapping」を選択
+
+### ステップ2: 次元を選択
+
+- **1D**: 位置 vs 伝導率の線図
+- **2D**: XY座標のヒートマップ/等高線図
+- **Ternary**: 3成分組成の三角図
+
+### ステップ3: 座標を入力
+
+各ファイルに対して座標を入力：
+- 1D: X座標
+- 2D: X, Y座標
+- Ternary: A, B, C成分比
+
+### ステップ4: プロットをカスタマイズ
+
+Settings（⚙️）で調整可能な項目：
+- **Scale Options**: Log スケール、Zero line表示
+- **Axis Range**: 軸の範囲指定
+- **Axis Labels**: 軸ラベル
+- **Colorscale**: Jet, Viridis, Plasma 等
+- **Ternary Settings**: 補間マーカーサイズ、下付き文字
+
+### ステップ5: 補間オプション
+
+2D/Ternaryでは「Interpolate」をチェックすると：
+- scipy griddata による補間
+- 滑らかな等高線プロットを生成
+
+---
+
 ## 次のステップ
 
 - [README.md](README.md) - 詳細な機能説明
@@ -187,4 +223,4 @@ streamlit run app.py --server.port 8502
 
 ---
 
-**Happy Analyzing! ⚡**
+**Happy Analyzing!**
