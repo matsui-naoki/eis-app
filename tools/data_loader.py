@@ -5,7 +5,6 @@ Supports multiple formats: .mpt (BioLogic), .z (ZPlot), .DTA (Gamry), etc.
 """
 
 import numpy as np
-import io
 import os
 import tempfile
 from typing import Tuple, Optional, List, Dict
