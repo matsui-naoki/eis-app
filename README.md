@@ -1,211 +1,232 @@
 # EIS Analyzer
 
-**Electrochemical Impedance Spectroscopy (EIS) Analysis Web Application**
+**Electrochemical Impedance Spectroscopy Analysis Web Application**
 
-Python Streamlit製のインピーダンス解析Webアプリケーション（β版）
+A browser-based EIS analysis tool built with Python and Streamlit.
 
----
-
-## 特徴
-
-- **データ読み込み**: BioLogic (.mpt) と ZPlot (.z) 形式のインピーダンスファイルをサポート
-- **インタラクティブな可視化**: Plotlyによる対話的なNyquist線図、Bode線図、Arrhenius線図
-- **等価回路解析**: pyEIS表記の等価回路モデルによるフィッティング
-- **多点解析**: 複数温度でのデータを一括解析し、導電率を計算
-- **マッピング解析**: 空間分布・組成分布の可視化（1D, 2D, Ternary）
-- **セッション保存**: 解析結果をJSON形式で保存・読み込み
+**Live Demo:** https://eis-analyzer.streamlit.app
 
 ---
 
-## インストール
+## Features
 
-### 1. 依存パッケージのインストール
+- **Multiple Analysis Modes**: Nyquist, Arrhenius, and Mapping analysis
+- **Interactive Visualization**: Nyquist plots, Bode plots, Arrhenius plots with Plotly
+- **Advanced Circuit Fitting**: Standard fit, Bayesian optimization, Monte Carlo, Auto-fit, Batch processing
+- **Mapping Analysis**: 1D, 2D heatmaps, and ternary diagrams
+- **Session Management**: Save and load complete analysis sessions
+- **Export Options**: Igor Pro (.itx), CSV, JSON
+
+---
+
+## Quick Start (Local)
 
 ```bash
-cd eisanalyzer
 pip install -r requirements.txt
-```
-
-### 2. オプション機能のインストール
-
-クラスタリング機能を使用する場合：
-```bash
-pip install umap-learn
-```
-
-ブラックボックス最適化を使用する場合：
-```bash
-pip install optuna timeout-decorator
-```
-
----
-
-## 使用方法
-
-### アプリの起動
-
-```bash
-cd eisanalyzer
 streamlit run app.py
 ```
 
-ブラウザが自動的に開き、アプリケーションが表示されます。
+---
 
-### 基本的なワークフロー
+## Supported File Formats
 
-1. **サンプル情報の入力**
-   - 左サイドバー上部で、サンプル名、厚さ、直径（または面積）を入力
-   - Arrheniusモードを有効にする場合はトグルスイッチをON
-
-2. **データファイルのアップロード**
-   - サイドバーの「📁 Files」タブを選択
-   - 「Upload EIS Data Files」からファイルを選択（複数可）
-   - ドラッグ&ドロップまたはファイル選択画面から読み込み
-
-3. **データの確認**
-   - サイドバーの「📊 Data」タブでファイルを選択
-   - Frequency, Z', Z'' のテーブルが表示される
-   - Arrheniusモードが有効な場合、温度を入力
-
-4. **プロットの表示**
-   - メインパネルの「📈 Plots」タブを選択
-   - プロットタイプ（Nyquist/Bode/Arrhenius）を選択
-   - 表示するファイルを選択
-
-5. **等価回路解析**
-   - 「🔬 Circuit Analysis」タブを選択
-   - サイドバーで解析するファイルを選択
-   - 等価回路モデルと初期値を入力
-   - 「Fit Circuit」ボタンをクリック
-   - フィッティング結果が表示される
-
-6. **多点解析**
-   - 「📋 Multipoint Table」タブで全ファイルの解析結果を一覧表示
-   - CSVファイルとしてダウンロード可能
-
-7. **マッピング解析**（Mapping Mode）
-   - 空間分布や組成分布の可視化
-   - 1D: 位置 vs 伝導率の折れ線/散布図
-   - 2D: ヒートマップ/等高線図（補間オプション付き）
-   - Ternary: 3成分組成図（三角ダイアグラム）
-   - Settingsでカラースケール、軸範囲、ラベル等をカスタマイズ可能
-
-8. **セッションの保存**
-   - サイドバー上部の「Save Session」ボタンをクリック
-   - JSONファイルがダウンロードされる
+| Format | Extension | Instrument |
+|--------|-----------|------------|
+| BioLogic EC-Lab | .mpt | BioLogic |
+| ZPlot | .z | Scribner |
+| Gamry | .dta | Gamry Instruments |
+| Keysight | .par | Keysight |
+| Text/CSV | .txt, .csv, .dat | Generic |
 
 ---
 
-## 等価回路表記
+## How to Use
 
-pyEIS表記に準拠した等価回路モデルを使用します。
+### 1. Sample Information
 
-### 記法例
+Enter sample parameters in the sidebar:
+- **Sample Name**: Label for your sample
+- **Thickness**: Sample thickness in cm
+- **Diameter/Area**: Choose input mode and enter electrode dimensions
 
-- `p(R1,CPE1)`: R1とCPE1の並列回路
-- `p(R1,CPE1)-CPE2`: R1とCPE1の並列回路に、CPE2を直列接続
-- `p(R1,CPE1)-p(R2,CPE2)-CPE3`: 2つのRC並列回路とスパイクCPE
+### 2. Load Data
 
-### パラメータ
+Click **Upload** in the sidebar to load EIS data files. Multiple files can be loaded simultaneously.
 
-- `R`: 抵抗（Ω）
-- `CPE`: Constant Phase Element (Q, n)
-  - Q: 疑似容量（F·s^(n-1)）
-  - n: 指数（0 < n ≤ 1）
+### 3. Analysis Modes
 
-### 初期値の例
+Select the analysis mode from the sidebar:
 
+#### Nyquist Mode
+- View Nyquist (Z' vs -Z'') and Bode plots
+- Perform circuit fitting
+- Analyze individual or multiple files
+
+#### Arrhenius Mode
+- Temperature-dependent conductivity analysis
+- Plot log(σT) vs 1000/T
+- Calculate activation energy from slope
+
+#### Mapping Mode
+- **1D**: Position vs conductivity
+- **2D**: Spatial heatmap with interpolation
+- **Ternary**: Three-component composition diagram
+
+### 4. Circuit Fitting
+
+#### Select Circuit Model
+Choose from 25+ preset circuits or enter a custom circuit string:
+- `p(R1,CPE1)-CPE2` - Single semicircle with spike
+- `p(R1,CPE1)-p(R2,CPE2)-CPE3` - Two semicircles with spike
+- `R1-p(R2-W1,CPE1)` - Randles circuit
+
+#### Fitting Methods
+
+| Method | Description |
+|--------|-------------|
+| **Fit** | Standard least-squares fitting |
+| **Bayesian** | Global optimization with Optuna |
+| **MC Fit** | Monte Carlo with noise injection |
+| **Auto Fit** | Bayesian + Monte Carlo combined |
+| **Batch** | Process multiple files sequentially |
+
+#### Weighting Options
+- **None**: Equal weight for all points
+- **Proportional**: Weight by |Z| (emphasizes low frequency)
+- **Modulus**: Weight by 1/|Z| (emphasizes high frequency)
+
+### 5. Data Range Controls
+
+| Control | Purpose |
+|---------|---------|
+| **Display Range** | Data points shown in plots |
+| **Fitting Range** | Data points used for fitting |
+| **Delete Points** | Exclude specific indices (e.g., `0,5,10` or `5:10`) |
+
+**Apply Mode**:
+- **Global**: Same range for all files
+- **Individual**: Per-file range settings
+
+### 6. Plot Customization
+
+In the **Settings** tab:
+- Marker: color, symbol, size, alpha, edge style
+- Fit line: color, width
+- Axis: label font size, tick font size
+- Legend: position, font size, display mode
+- Zero lines: toggle visibility
+
+### 7. Export Data
+
+#### Session Save/Load
+- **Save**: Export complete session to JSON
+- **Load**: Restore previous session
+
+#### Igor Pro Export
+- Export data and fits to .itx format
+- Includes procedure file (.ipf) for axis formatting
+
+#### CSV Export
+- Download summary tables
+- Export individual file data
+
+---
+
+## Circuit Notation
+
+Uses [impedance.py](https://impedancepy.readthedocs.io/) notation:
+
+| Symbol | Element | Parameters |
+|--------|---------|------------|
+| R | Resistor | R (Ω) |
+| C | Capacitor | C (F) |
+| CPE | Constant Phase Element | Q (F·s^(n-1)), n |
+| W | Warburg | Aw |
+| L | Inductor | L (H) |
+
+**Operators**:
+- `-` : Series connection
+- `p(A,B)` : Parallel connection
+
+**Examples**:
 ```
-p(R1,CPE1)-CPE2
-初期値: 1e6, 1e-9, 0.9, 1e-6, 0.9
-```
-
-- R1 = 1e6 Ω
-- CPE1_Q = 1e-9
-- CPE1_n = 0.9
-- CPE2_Q = 1e-6
-- CPE2_n = 0.9
-
----
-
-## プロジェクト構造
-
-```
-eisanalyzer/
-├── app.py                      # メインアプリケーション
-├── eis.py                      # EIS解析ユーティリティ
-├── requirements.txt            # 依存パッケージ
-├── README.md                   # このファイル
-│
-├── components/                 # UIコンポーネント
-│   ├── __init__.py
-│   └── plots.py                # Plotly可視化
-│
-├── tools/                      # ツールモジュール
-│   ├── __init__.py
-│   └── data_loader.py          # データ読み込み
-│
-└── pyeis/                      # pyEISコアライブラリ
-    ├── __init__.py
-    ├── preprocessing.py        # データ前処理
-    ├── visualization.py        # matplotlib可視化
-    └── models/
-        └── circuits/           # 等価回路モデル
-            ├── circuits.py
-            ├── elements.py
-            └── fitting.py
+R1-CPE1                    # R in series with CPE
+p(R1,CPE1)                 # R parallel with CPE
+p(R1,CPE1)-p(R2,CPE2)      # Two RC parallel circuits in series
+R1-p(R2-W1,CPE1)           # Randles circuit
 ```
 
 ---
 
-## トラブルシューティング
+## Analysis Results
 
-### インポートエラーが発生する
+### Multipoint Table
 
-依存パッケージが正しくインストールされているか確認：
-```bash
-pip install -r requirements.txt
-```
+Summary of all fitted data:
+- Temperature (K)
+- Fitted parameters (R, CPE_Q, CPE_α)
+- Conductivity (σ, log(σ), σT, log(σT))
+- Effective capacitance (C_eff)
+- RMSPE quality metric
 
-### ファイルの読み込みに失敗する
+### RMSPE Interpretation
 
-- ファイル形式が .mpt または .z であることを確認
-- ファイル内容がBioLogicまたはZPlotの標準形式に準拠しているか確認
-
-### フィッティングが収束しない
-
-- 初期値を調整
-- 重み付け方法を変更（None / modulus / proportional）
-- 解析範囲（周波数範囲）を調整
-
----
-
-## 開発履歴
-
-- **v0.2 (Beta)**: マッピング機能追加
-  - Mapping Mode（1D, 2D, Ternary）の追加
-  - scipy補間による等高線プロット
-  - 化学式の自動下付き文字変換（Li7 → Li₇）
-  - 3モード切り替え（Nyquist / Arrhenius / Mapping）
-
-- **v0.1 (Beta)**: 初版リリース
-  - 基本的なデータ読み込みと可視化機能
-  - 等価回路フィッティング
-  - 多点解析とArrhenius線図
+| RMSPE | Quality |
+|-------|---------|
+| < 1% | Excellent |
+| 1-3% | Good |
+| 3-5% | Acceptable |
+| > 5% | Poor |
 
 ---
 
-## ライセンス
+## Keyboard Shortcuts
 
-このプロジェクトは研究・教育目的で使用できます。
+Standard Plotly interactions:
+- **Scroll**: Zoom in/out
+- **Drag**: Pan
+- **Double-click**: Reset view
+- **Hover**: Show data tooltip
 
 ---
 
-## 謝辞
+## Tips
 
-- pyEIS: https://github.com/ECSHackWeek/impedance.py からフォークして再編集
-- Streamlit: https://streamlit.io/
-- Plotly: https://plotly.com/python/
+1. **Initial Values**: Good initial guesses improve fitting convergence
+2. **Fitting Range**: Exclude noisy high/low frequency regions
+3. **Weight Method**: Use "Proportional" for solid electrolytes
+4. **Bayesian Fit**: Increase trials for complex circuits
+5. **Batch Fit**: Enable "Use previous result" for sequential temperature data
+
+---
+
+## Requirements
+
+- Python 3.8+
+- streamlit
+- numpy
+- pandas
+- scipy
+- plotly
+- impedance
+
+Optional:
+- optuna (Bayesian optimization)
+
+---
+
+## License
+
+For research and educational purposes.
+
+---
+
+## Acknowledgments
+
+- [impedance.py](https://impedancepy.readthedocs.io/) - Circuit modeling
+- [Streamlit](https://streamlit.io/) - Web framework
+- [Plotly](https://plotly.com/python/) - Interactive plots
+- [Optuna](https://optuna.org/) - Bayesian optimization
 
 ---
 
