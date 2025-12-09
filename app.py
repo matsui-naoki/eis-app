@@ -138,8 +138,19 @@ def initialize_session_state():
         st.session_state.show_fit = True
     if 'show_all_data' not in st.session_state:
         st.session_state.show_all_data = False
+    if 'display_range' not in st.session_state:
+        st.session_state.display_range = (0, 70)  # Default display range 0-70
+    if 'fitting_range' not in st.session_state:
+        st.session_state.fitting_range = (0, 70)  # Default fitting range 0-70
+    if 'range_apply_mode' not in st.session_state:
+        st.session_state.range_apply_mode = 'global'  # 'global' or 'individual'
+    if 'file_display_ranges' not in st.session_state:
+        st.session_state.file_display_ranges = {}  # {filename: (start, end)} for individual mode
+    if 'file_fitting_ranges' not in st.session_state:
+        st.session_state.file_fitting_ranges = {}  # {filename: (start, end)} for individual mode
+    # Keep backward compatibility with old freq_range
     if 'freq_range' not in st.session_state:
-        st.session_state.freq_range = (0, 70)  # Default range 0-70
+        st.session_state.freq_range = (0, 70)  # Legacy, will be removed
     if 'deleted_points' not in st.session_state:
         st.session_state.deleted_points = []  # List of deleted indices
     if 'show_legend' not in st.session_state:
@@ -1854,33 +1865,82 @@ Ea = –slope × R × ln(10) × 1000
             )
             st.session_state.highlight_freq = highlight_freq
 
-        # Fitting range slider
+        # Range sliders (Display Range and Fitting Range)
         with ctrl_col2:
-            st.caption("Fitting Range (index)")
-            freq_range = st.session_state.freq_range
+            # Get selected file data for range limits
+            display_range = st.session_state.display_range
+            fitting_range = st.session_state.fitting_range
+            n_points = 71  # Default
+
             if st.session_state.selected_file and st.session_state.selected_file in st.session_state.files:
                 data = st.session_state.files[st.session_state.selected_file]
                 freq_data = data['freq']
                 n_points = len(freq_data)
 
-                if n_points > 1:
-                    # Get current range or default to 0-70
-                    current_range = st.session_state.freq_range or (0, min(70, n_points - 1))
-                    # Clamp to valid range
-                    current_range = (
-                        max(0, min(current_range[0], n_points - 1)),
-                        max(0, min(current_range[1], n_points - 1))
-                    )
+                # For individual mode, get file-specific ranges
+                if st.session_state.range_apply_mode == 'individual':
+                    file_key = st.session_state.selected_file
+                    if file_key in st.session_state.file_display_ranges:
+                        display_range = st.session_state.file_display_ranges[file_key]
+                    if file_key in st.session_state.file_fitting_ranges:
+                        fitting_range = st.session_state.file_fitting_ranges[file_key]
 
-                    freq_range = st.slider(
-                        "range",
-                        min_value=0,
-                        max_value=n_points - 1,
-                        value=current_range,
-                        label_visibility="collapsed",
-                        key="freq_range_slider"
-                    )
-                    st.session_state.freq_range = freq_range
+            if n_points > 1:
+                # Fitting range apply mode selector (Global vs Individual)
+                apply_mode = st.radio(
+                    "Fitting range apply mode",
+                    options=['global', 'individual'],
+                    format_func=lambda x: 'Global (all files)' if x == 'global' else 'Individual (per file)',
+                    index=0 if st.session_state.range_apply_mode == 'global' else 1,
+                    horizontal=True,
+                    key="range_apply_mode_radio",
+                    label_visibility="visible"
+                )
+                st.session_state.range_apply_mode = apply_mode
+
+                # Display Range slider
+                st.caption("Display Range (index)")
+                current_display = display_range or (0, min(70, n_points - 1))
+                current_display = (
+                    max(0, min(current_display[0], n_points - 1)),
+                    max(0, min(current_display[1], n_points - 1))
+                )
+                display_range = st.slider(
+                    "display_range",
+                    min_value=0,
+                    max_value=n_points - 1,
+                    value=current_display,
+                    label_visibility="collapsed",
+                    key="display_range_slider"
+                )
+
+                # Fitting Range slider
+                st.caption("Fitting Range (index)")
+                current_fitting = fitting_range or (0, min(70, n_points - 1))
+                current_fitting = (
+                    max(0, min(current_fitting[0], n_points - 1)),
+                    max(0, min(current_fitting[1], n_points - 1))
+                )
+                fitting_range = st.slider(
+                    "fitting_range",
+                    min_value=0,
+                    max_value=n_points - 1,
+                    value=current_fitting,
+                    label_visibility="collapsed",
+                    key="fitting_range_slider"
+                )
+
+                # Store ranges based on apply mode
+                if apply_mode == 'global':
+                    st.session_state.display_range = display_range
+                    st.session_state.fitting_range = fitting_range
+                    # Also update legacy freq_range for backward compatibility
+                    st.session_state.freq_range = fitting_range
+                else:
+                    # Individual mode: store per-file
+                    if st.session_state.selected_file:
+                        st.session_state.file_display_ranges[st.session_state.selected_file] = display_range
+                        st.session_state.file_fitting_ranges[st.session_state.selected_file] = fitting_range
 
         # Delete points
         with ctrl_col3:
@@ -1915,6 +1975,17 @@ Ea = –slope × R × ln(10) × 1000
         # Get current values for plotting
         deleted_points = st.session_state.get('deleted_points', [])
 
+        # Get range settings for plotting
+        # For plotting, use display_range; fitting_range is used only for fitting
+        if st.session_state.range_apply_mode == 'global':
+            current_display_range = st.session_state.display_range
+            current_fitting_range = st.session_state.fitting_range
+        else:
+            # Individual mode
+            file_key = st.session_state.selected_file
+            current_display_range = st.session_state.file_display_ranges.get(file_key, st.session_state.display_range)
+            current_fitting_range = st.session_state.file_fitting_ranges.get(file_key, st.session_state.fitting_range)
+
         # Now render plots with updated values
         col1, col2 = st.columns(2)
 
@@ -1925,8 +1996,9 @@ Ea = –slope × R × ln(10) × 1000
                 show_legend,
                 highlight_freq,
                 plot_settings,
-                freq_range,
-                deleted_points
+                current_display_range,  # Use display_range for plotting
+                deleted_points,
+                fitting_range=current_fitting_range  # Pass fitting_range for fit curve display
             )
             st.plotly_chart(fig_nyquist, use_container_width=True, key="nyquist")
 
@@ -1935,9 +2007,10 @@ Ea = –slope × R × ln(10) × 1000
                 st.session_state.files, selected_for_plot,
                 show_fit,
                 show_legend,
-                freq_range,
+                current_display_range,  # Use display_range for plotting
                 plot_settings,
-                deleted_points
+                deleted_points,
+                fitting_range=current_fitting_range  # Pass fitting_range for fit curve display
             )
             st.plotly_chart(fig_bode, use_container_width=True, key="bode")
 
@@ -2486,9 +2559,17 @@ Combines Auto Fit (Bayesian + MC) for each file.
                 existing_rmspe = data.get('rmspe')
 
                 # Apply fitting range if set
-                freq_range = st.session_state.freq_range
-                if freq_range:
-                    start_idx, end_idx = freq_range
+                # Use fitting_range for fitting (not display_range)
+                if st.session_state.range_apply_mode == 'global':
+                    fitting_range = st.session_state.fitting_range
+                else:
+                    # Individual mode: get per-file fitting range
+                    fitting_range = st.session_state.file_fitting_ranges.get(
+                        filename, st.session_state.fitting_range
+                    )
+
+                if fitting_range:
+                    start_idx, end_idx = fitting_range
                     freq_fit = freq[start_idx:end_idx + 1]
                     Z_fit_data = Z[start_idx:end_idx + 1]
                 else:
@@ -2734,9 +2815,17 @@ Combines Auto Fit (Bayesian + MC) for each file.
             Z = data['Z']
 
             # Apply fitting range if set
-            freq_range = st.session_state.freq_range
-            if freq_range:
-                start_idx, end_idx = freq_range
+            # Use fitting_range for fitting (not display_range)
+            if st.session_state.range_apply_mode == 'global':
+                fitting_range = st.session_state.fitting_range
+            else:
+                # Individual mode: get per-file fitting range
+                fitting_range = st.session_state.file_fitting_ranges.get(
+                    filename, st.session_state.fitting_range
+                )
+
+            if fitting_range:
+                start_idx, end_idx = fitting_range
                 freq_fit = freq[start_idx:end_idx + 1]
                 Z_fit_data = Z[start_idx:end_idx + 1]
             else:
@@ -2932,9 +3021,17 @@ Combines Auto Fit (Bayesian + MC) for each file.
             mc_iterations = fit_settings.get('mc_iterations', 20)
 
             # Apply fitting range if set
-            freq_range = st.session_state.freq_range
-            if freq_range:
-                start_idx, end_idx = freq_range
+            # Use fitting_range for fitting (not display_range)
+            if st.session_state.range_apply_mode == 'global':
+                fitting_range = st.session_state.fitting_range
+            else:
+                # Individual mode: get per-file fitting range
+                fitting_range = st.session_state.file_fitting_ranges.get(
+                    filename, st.session_state.fitting_range
+                )
+
+            if fitting_range:
+                start_idx, end_idx = fitting_range
                 freq_fit = freq[start_idx:end_idx + 1]
                 Z_fit_data = Z[start_idx:end_idx + 1]
             else:
@@ -3145,9 +3242,17 @@ Combines Auto Fit (Bayesian + MC) for each file.
             Z = data['Z']
 
             # Apply fitting range if set
-            freq_range = st.session_state.freq_range
-            if freq_range:
-                start_idx, end_idx = freq_range
+            # Use fitting_range for fitting (not display_range)
+            if st.session_state.range_apply_mode == 'global':
+                fitting_range = st.session_state.fitting_range
+            else:
+                # Individual mode: get per-file fitting range
+                fitting_range = st.session_state.file_fitting_ranges.get(
+                    filename, st.session_state.fitting_range
+                )
+
+            if fitting_range:
+                start_idx, end_idx = fitting_range
                 freq_fit = freq[start_idx:end_idx + 1]
                 Z_fit_data = Z[start_idx:end_idx + 1]
             else:
@@ -3428,9 +3533,17 @@ Combines Auto Fit (Bayesian + MC) for each file.
 
                 try:
                     # Apply fitting range if set
-                    freq_range = st.session_state.freq_range
-                    if freq_range:
-                        start_idx, end_idx = freq_range
+                    # Use fitting_range for fitting (not display_range)
+                    if st.session_state.range_apply_mode == 'global':
+                        fitting_range = st.session_state.fitting_range
+                    else:
+                        # Individual mode: get per-file fitting range
+                        fitting_range = st.session_state.file_fitting_ranges.get(
+                            fname, st.session_state.fitting_range
+                        )
+
+                    if fitting_range:
+                        start_idx, end_idx = fitting_range
                         freq_fit = freq[start_idx:end_idx + 1]
                         Z_fit_data = Z[start_idx:end_idx + 1]
                     else:
@@ -3609,9 +3722,17 @@ Combines Auto Fit (Bayesian + MC) for each file.
 
                 try:
                     # Apply fitting range if set
-                    freq_range = st.session_state.freq_range
-                    if freq_range:
-                        start_idx, end_idx = freq_range
+                    # Use fitting_range for fitting (not display_range)
+                    if st.session_state.range_apply_mode == 'global':
+                        fitting_range = st.session_state.fitting_range
+                    else:
+                        # Individual mode: get per-file fitting range
+                        fitting_range = st.session_state.file_fitting_ranges.get(
+                            fname, st.session_state.fitting_range
+                        )
+
+                    if fitting_range:
+                        start_idx, end_idx = fitting_range
                         freq_fit = freq[start_idx:end_idx + 1]
                         Z_fit_data = Z[start_idx:end_idx + 1]
                     else:
@@ -3887,9 +4008,17 @@ Combines Auto Fit (Bayesian + MC) for each file.
 
                 try:
                     # Apply fitting range if set
-                    freq_range = st.session_state.freq_range
-                    if freq_range:
-                        start_idx, end_idx = freq_range
+                    # Use fitting_range for fitting (not display_range)
+                    if st.session_state.range_apply_mode == 'global':
+                        fitting_range = st.session_state.fitting_range
+                    else:
+                        # Individual mode: get per-file fitting range
+                        fitting_range = st.session_state.file_fitting_ranges.get(
+                            fname, st.session_state.fitting_range
+                        )
+
+                    if fitting_range:
+                        start_idx, end_idx = fitting_range
                         freq_fit = freq[start_idx:end_idx + 1]
                         Z_fit_data = Z[start_idx:end_idx + 1]
                     else:
@@ -4760,6 +4889,16 @@ def load_session(uploaded_file):
                 st.session_state.show_all_data = app_state['show_all_data']
             if 'freq_range' in app_state:
                 st.session_state.freq_range = tuple(app_state['freq_range'])
+            if 'display_range' in app_state:
+                st.session_state.display_range = tuple(app_state['display_range'])
+            if 'fitting_range' in app_state:
+                st.session_state.fitting_range = tuple(app_state['fitting_range'])
+            if 'range_apply_mode' in app_state:
+                st.session_state.range_apply_mode = app_state['range_apply_mode']
+            if 'file_display_ranges' in app_state:
+                st.session_state.file_display_ranges = {k: tuple(v) for k, v in app_state['file_display_ranges'].items()}
+            if 'file_fitting_ranges' in app_state:
+                st.session_state.file_fitting_ranges = {k: tuple(v) for k, v in app_state['file_fitting_ranges'].items()}
             if 'deleted_points' in app_state:
                 st.session_state.deleted_points = app_state['deleted_points']
             if 'show_legend' in app_state:
@@ -4850,6 +4989,11 @@ def save_session():
             'show_fit': st.session_state.show_fit,
             'show_all_data': st.session_state.show_all_data,
             'freq_range': list(st.session_state.freq_range),
+            'display_range': list(st.session_state.display_range),
+            'fitting_range': list(st.session_state.fitting_range),
+            'range_apply_mode': st.session_state.range_apply_mode,
+            'file_display_ranges': {k: list(v) for k, v in st.session_state.file_display_ranges.items()},
+            'file_fitting_ranges': {k: list(v) for k, v in st.session_state.file_fitting_ranges.items()},
             'deleted_points': st.session_state.deleted_points,
             'show_legend': st.session_state.show_legend,
             'highlight_freq': st.session_state.highlight_freq,

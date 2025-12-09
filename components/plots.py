@@ -160,7 +160,8 @@ def create_nyquist_plot(
     highlight_freq: bool = False,
     settings: dict = None,
     freq_range: Optional[Tuple[int, int]] = None,
-    deleted_points: Optional[List[int]] = None
+    deleted_points: Optional[List[int]] = None,
+    fitting_range: Optional[Tuple[int, int]] = None
 ) -> go.Figure:
     """
     Create interactive Nyquist plot using Plotly
@@ -281,12 +282,13 @@ def create_nyquist_plot(
                     showlegend=False
                 ))
 
-        # Add fitted data if available (limited to freq_range)
+        # Add fitted data if available (limited to fitting_range, not display_range)
         if show_fit and data.get('Z_fit') is not None:
             Z_fit_full = data['Z_fit']
-            # Limit to fitting range
-            if freq_range:
-                start_idx, end_idx = freq_range
+            # Use fitting_range for fit curve display (if provided, otherwise use freq_range for backward compatibility)
+            fit_range = fitting_range if fitting_range is not None else freq_range
+            if fit_range:
+                start_idx, end_idx = fit_range
                 start_idx = max(0, min(start_idx, n_points - 1))
                 end_idx = max(0, min(end_idx, n_points - 1))
                 Z_fit = Z_fit_full[start_idx:end_idx + 1]
@@ -357,7 +359,8 @@ def create_bode_plot(
     show_legend: bool = True,
     freq_range: Optional[Tuple[int, int]] = None,
     settings: dict = None,
-    deleted_points: Optional[List[int]] = None
+    deleted_points: Optional[List[int]] = None,
+    fitting_range: Optional[Tuple[int, int]] = None
 ) -> go.Figure:
     """
     Create interactive Bode plot using Plotly with shared x-axis
@@ -475,13 +478,14 @@ def create_bode_plot(
             showlegend=False
         ), row=2, col=1)
 
-        # Add fitted data if available (only within freq_range)
+        # Add fitted data if available (only within fitting_range)
         if show_fit and data.get('Z_fit') is not None:
             Z_fit = data['Z_fit']
 
-            # Limit to fitting range
-            if freq_range:
-                start_idx, end_idx = freq_range
+            # Use fitting_range for fit curve display (if provided, otherwise use freq_range for backward compatibility)
+            fit_range = fitting_range if fitting_range is not None else freq_range
+            if fit_range:
+                start_idx, end_idx = fit_range
                 freq_fit = freq_full[start_idx:end_idx + 1]
                 Z_fit_range = Z_fit[start_idx:end_idx + 1]
             else:
