@@ -42,13 +42,24 @@ def _run_with_timeout(func, timeout_sec, *args, **kwargs):
     ------
     FittingTimeoutError
         If the function does not complete within timeout_sec
+
+    Note
+    ----
+    On timeout, the background thread continues running but its result is
+    discarded. This prevents blocking the main thread while still allowing
+    the fitting to complete in the background (which will be garbage collected).
     """
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout_sec)
-        except FuturesTimeoutError:
-            raise FittingTimeoutError(f"Fitting timed out after {timeout_sec} seconds")
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(func, *args, **kwargs)
+    try:
+        result = future.result(timeout=timeout_sec)
+        executor.shutdown(wait=False)
+        return result
+    except FuturesTimeoutError:
+        # Don't wait for the thread to complete - just abandon it
+        # The thread will continue in background but result is discarded
+        executor.shutdown(wait=False)
+        raise FittingTimeoutError(f"Fitting timed out after {timeout_sec} seconds")
 
 
 def rmse(a, b):
