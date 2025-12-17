@@ -18,5 +18,8 @@ impedance>=1.7.1
 # For Bayesian optimization fitting
 optuna>=3.0.0
 
+# For timeout functionality in fitting
+timeout-decorator>=0.5.0
+
 # Optional (for advanced features)
 # umap-learn>=0.5.3       # For clustering

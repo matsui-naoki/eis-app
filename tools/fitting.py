@@ -8,6 +8,15 @@ import numpy as np
 from scipy.linalg import inv
 from scipy.optimize import curve_fit, basinhopping
 
+# Timeout decorator for fitting functions
+try:
+    from timeout_decorator import timeout as timeout_decorator
+    from timeout_decorator import TimeoutError as TimeoutDecoratorError
+    TIMEOUT_AVAILABLE = True
+except ImportError:
+    TIMEOUT_AVAILABLE = False
+    TimeoutDecoratorError = Exception  # Fallback
+
 # Use elements from impedance library
 from impedance.models.circuits.elements import circuit_elements, get_element_from_name
 from impedance.models.circuits.fitting import (
@@ -77,8 +86,8 @@ def wrapCircuit(circuit, constants):
     return wrappedCircuit
 
 
-def _do_curve_fit(circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs):
-    """Internal function to perform curve_fit (for timeout wrapper)."""
+def _do_curve_fit_core(circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs):
+    """Core curve_fit implementation without timeout."""
     fit_kwargs = kwargs.copy()
 
     if 'maxfev' not in fit_kwargs:
@@ -108,8 +117,33 @@ def _do_curve_fit(circuit, constants, f, Z, initial_guess, bounds, weight_method
     return popt, perror
 
 
-def _do_basinhopping(circuit, constants, f, Z, initial_guess, bounds, kwargs):
-    """Internal function to perform basinhopping (for timeout wrapper)."""
+def _do_curve_fit(circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs, timeout_sec=None):
+    """
+    Internal function to perform curve_fit with optional timeout.
+
+    Parameters
+    ----------
+    timeout_sec : float, optional
+        Timeout in seconds. If None or timeout_decorator not available, no timeout is applied.
+    """
+    if timeout_sec is not None and timeout_sec > 0 and TIMEOUT_AVAILABLE:
+        # Create a timeout-wrapped version of the core function
+        # Use signals=True on Unix/macOS (default), signals=False on Windows
+        @timeout_decorator(timeout_sec)
+        def _fit_with_timeout():
+            return _do_curve_fit_core(circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs)
+
+        try:
+            return _fit_with_timeout()
+        except TimeoutDecoratorError:
+            raise FittingTimeoutError(f"curve_fit timed out after {timeout_sec} seconds")
+    else:
+        # No timeout
+        return _do_curve_fit_core(circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs)
+
+
+def _do_basinhopping_core(circuit, constants, f, Z, initial_guess, bounds, kwargs):
+    """Core basinhopping implementation without timeout."""
     fit_kwargs = kwargs.copy()
 
     if 'seed' not in fit_kwargs:
@@ -146,6 +180,31 @@ def _do_basinhopping(circuit, constants, f, Z, initial_guess, bounds, kwargs):
     return popt, perror
 
 
+def _do_basinhopping(circuit, constants, f, Z, initial_guess, bounds, kwargs, timeout_sec=None):
+    """
+    Internal function to perform basinhopping with optional timeout.
+
+    Parameters
+    ----------
+    timeout_sec : float, optional
+        Timeout in seconds. If None or timeout_decorator not available, no timeout is applied.
+    """
+    if timeout_sec is not None and timeout_sec > 0 and TIMEOUT_AVAILABLE:
+        # Create a timeout-wrapped version of the core function
+        # Use signals=True on Unix/macOS (default), signals=False on Windows
+        @timeout_decorator(timeout_sec)
+        def _fit_with_timeout():
+            return _do_basinhopping_core(circuit, constants, f, Z, initial_guess, bounds, kwargs)
+
+        try:
+            return _fit_with_timeout()
+        except TimeoutDecoratorError:
+            raise FittingTimeoutError(f"basinhopping timed out after {timeout_sec} seconds")
+    else:
+        # No timeout
+        return _do_basinhopping_core(circuit, constants, f, Z, initial_guess, bounds, kwargs)
+
+
 def circuit_fit(frequencies, impedances, circuit, initial_guess, constants={},
                 bounds=None, weight_method=None, global_opt=False,
                 timeout=None, **kwargs):
@@ -175,8 +234,10 @@ def circuit_fit(frequencies, impedances, circuit, initial_guess, constants={},
     global_opt : bool, optional
         If True, use basinhopping global optimization
     timeout : float, optional
-        Timeout in seconds (not currently enforced - for compatibility).
+        Timeout in seconds for the fitting operation.
+        If fitting exceeds this time, FittingTimeoutError is raised.
         Default is None (no timeout).
+        Requires timeout_decorator package to be installed.
 
     Returns
     -------
@@ -184,6 +245,11 @@ def circuit_fit(frequencies, impedances, circuit, initial_guess, constants={},
         Best fit parameters
     p_errors : list of floats
         One standard deviation error estimates
+
+    Raises
+    ------
+    FittingTimeoutError
+        If fitting exceeds the specified timeout.
     """
     f = np.array(frequencies, dtype=float)
     Z = np.array(impedances, dtype=complex)
@@ -197,11 +263,13 @@ def circuit_fit(frequencies, impedances, circuit, initial_guess, constants={},
 
     if not global_opt:
         popt, perror = _do_curve_fit(
-            circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs
+            circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs,
+            timeout_sec=timeout
         )
     else:
         popt, perror = _do_basinhopping(
-            circuit, constants, f, Z, initial_guess, bounds, kwargs
+            circuit, constants, f, Z, initial_guess, bounds, kwargs,
+            timeout_sec=timeout
         )
 
     return popt, perror
@@ -709,7 +777,7 @@ class BlackBoxOptEIS:
         from impedance.models.circuits import CustomCircuit
 
         try:
-            # Use our custom circuit_fit function which supports weight_method
+            # Use our custom circuit_fit function which supports weight_method and timeout
             popt, perror = circuit_fit(
                 self.freq, self.Z,
                 model,
@@ -728,7 +796,11 @@ class BlackBoxOptEIS:
             Z_fit = circuit.predict(self.freq)
             rmspe = calc_rmspe(self.Z, Z_fit)
             return circuit, Z_fit, rmspe
+        except FittingTimeoutError:
+            # Timeout occurred - return inf RMSPE
+            return None, None, float('inf')
         except Exception:
+            # Other errors - return inf RMSPE
             return None, None, float('inf')
 
     def _objective(self, trial):
