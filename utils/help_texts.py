@@ -101,7 +101,7 @@ FIT_SETTINGS_HELP = {
     'maxfev': "Maximum number of function evaluations (scipy curve_fit). Higher values allow more iterations for convergence. Default: 10000",
     'ftol': "Function tolerance. Fitting stops when relative change in residuals is below this value. Lower = stricter. Default: 1e-10",
     'xtol': "Parameter tolerance. Fitting stops when relative change in parameters is below this value. Lower = stricter. Default: 1e-10",
-    'timeout': "Maximum time (seconds) for fitting. If timeout is reached, fitting fails and initial values are returned. Default: 5 sec",
+    'timeout': "Maximum time (seconds) for each fitting attempt. If timeout is reached, fitting is interrupted and skipped. Prevents long stalls. Default: 5 sec",
     'noise_percent': "Random noise range (±%) for Add Noise button. Only Variable (V) parameters are modified. Default: 10%",
     'mc_iterations': "Number of Monte Carlo fit iterations. Each iteration adds random noise and refits. Higher = more chance to escape local minima. Default: 100",
     'keep_better': "Compare new fit result with existing result (if any) and keep the one with lower RMSPE. Prevents accidental overwriting of good fits.",

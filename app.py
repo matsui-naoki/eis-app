@@ -2202,7 +2202,7 @@ Combines Auto Fit (Bayesian + MC) for each file.
         with col_f4:
             fit_settings['timeout'] = st.number_input(
                 "Timeout (sec)",
-                min_value=1, max_value=60, value=fit_settings.get('timeout', 5), step=1,
+                min_value=1, max_value=120, value=fit_settings.get('timeout', 5), step=1,
                 help=FIT_SETTINGS_HELP['timeout']
             )
 
