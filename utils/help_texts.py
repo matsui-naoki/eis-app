@@ -122,8 +122,8 @@ BAYESIAN_FIT_SETTINGS_HELP = {
     'cpe_q_min': "Minimum CPE Q value (10^x F·s^(α-1)) to search.",
     'cpe_q_max': "Maximum CPE Q value (10^x F·s^(α-1)) to search.",
     'log_step': "Search step size in log scale (orders of magnitude). Smaller = finer mesh, more precise but slower. 0 = continuous (Optuna default).",
-    'use_current_model': "If checked, use only the circuit model specified above. Otherwise, try multiple models to find the best fit.",
-    'model_list': "Select which circuit models to try during optimization."
+    'use_current_model': "If checked, use only the current circuit model. Uncheck to let Bayesian optimization also select the best model from multiple candidates.",
+    'model_list': "Select which circuit models to include in optimization. The optimizer will find both the best model and best parameters."
 }
 
 # =============================================================================

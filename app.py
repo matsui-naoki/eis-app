@@ -2249,7 +2249,7 @@ Combines Auto Fit (Bayesian + MC) for each file.
                 'r_max': 1e8,
                 'cpe_q_min': 1e-12,
                 'cpe_q_max': 1e-4,
-                'use_current_model': True,
+                'use_current_model': False,  # Default: optimize model selection
                 'model_list': ['p(R1,CPE1)-CPE2', 'p(R1,CPE1)-p(R2,CPE2)-CPE3'],
                 # Individual R ranges (exponent values)
                 'r1_range': (0, 8),
@@ -2397,9 +2397,9 @@ Combines Auto Fit (Bayesian + MC) for each file.
                 )
 
         # Row 4: Circuit model selection
-        st.markdown("**Circuit model**")
+        st.markdown("**Circuit model optimization**")
         settings['use_current_model'] = st.checkbox(
-            "Use current circuit model only",
+            "Fix to current model (uncheck to optimize model selection)",
             value=settings['use_current_model'],
             help=BAYESIAN_FIT_SETTINGS_HELP['use_current_model']
         )
@@ -2407,15 +2407,25 @@ Combines Auto Fit (Bayesian + MC) for each file.
         if not settings['use_current_model']:
             # Multi-select for circuit models
             available_models = [
+                # Without series R0
                 'p(R1,CPE1)-CPE2',
                 'p(R1,CPE1)-p(R2,CPE2)-CPE3',
-                'R1-p(R2,CPE1)-CPE2',
-                'R1-p(R2,CPE1)-p(R3,CPE2)-CPE3',
                 'p(R1,CPE1)',
-                'p(R1,CPE1)-p(R2,CPE2)'
+                'p(R1,CPE1)-p(R2,CPE2)',
+                'p(R1,CPE1)-p(R2,CPE2)-p(R3,CPE3)',
+                # With series R0
+                'R0-p(R1,CPE1)-CPE2',
+                'R0-p(R1,CPE1)-p(R2,CPE2)-CPE3',
+                'R0-p(R1,CPE1)',
+                'R0-p(R1,CPE1)-p(R2,CPE2)',
+                'R0-p(R1,CPE1)-p(R2,CPE2)-p(R3,CPE3)',
+                # Warburg element
+                'p(R1,CPE1)-Wo1',
+                'p(R1,CPE1)-p(R2,CPE2)-Wo1',
+                'R0-p(R1,CPE1)-Wo1',
             ]
             settings['model_list'] = st.multiselect(
-                "Models to try",
+                "Circuit models to optimize",
                 available_models,
                 default=settings['model_list'],
                 help=BAYESIAN_FIT_SETTINGS_HELP['model_list']
