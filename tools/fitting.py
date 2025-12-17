@@ -7,15 +7,7 @@ import warnings
 import numpy as np
 from scipy.linalg import inv
 from scipy.optimize import curve_fit, basinhopping
-
-# Timeout decorator for fitting functions
-try:
-    from timeout_decorator import timeout as timeout_decorator
-    from timeout_decorator import TimeoutError as TimeoutDecoratorError
-    TIMEOUT_AVAILABLE = True
-except ImportError:
-    TIMEOUT_AVAILABLE = False
-    TimeoutDecoratorError = Exception  # Fallback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 # Use elements from impedance library
 from impedance.models.circuits.elements import circuit_elements, get_element_from_name
@@ -27,6 +19,36 @@ from impedance.models.circuits.fitting import (
 class FittingTimeoutError(Exception):
     """Exception raised when fitting times out."""
     pass
+
+
+def _run_with_timeout(func, timeout_sec, *args, **kwargs):
+    """
+    Run a function with a timeout using ThreadPoolExecutor.
+
+    Parameters
+    ----------
+    func : callable
+        Function to execute
+    timeout_sec : float
+        Timeout in seconds
+    *args, **kwargs
+        Arguments to pass to the function
+
+    Returns
+    -------
+    Result of func(*args, **kwargs)
+
+    Raises
+    ------
+    FittingTimeoutError
+        If the function does not complete within timeout_sec
+    """
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout_sec)
+        except FuturesTimeoutError:
+            raise FittingTimeoutError(f"Fitting timed out after {timeout_sec} seconds")
 
 
 def rmse(a, b):
@@ -124,19 +146,15 @@ def _do_curve_fit(circuit, constants, f, Z, initial_guess, bounds, weight_method
     Parameters
     ----------
     timeout_sec : float, optional
-        Timeout in seconds. If None or timeout_decorator not available, no timeout is applied.
+        Timeout in seconds. If None, no timeout is applied.
     """
-    if timeout_sec is not None and timeout_sec > 0 and TIMEOUT_AVAILABLE:
-        # Create a timeout-wrapped version of the core function
-        # Use signals=True on Unix/macOS (default), signals=False on Windows
-        @timeout_decorator(timeout_sec)
-        def _fit_with_timeout():
-            return _do_curve_fit_core(circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs)
-
-        try:
-            return _fit_with_timeout()
-        except TimeoutDecoratorError:
-            raise FittingTimeoutError(f"curve_fit timed out after {timeout_sec} seconds")
+    if timeout_sec is not None and timeout_sec > 0:
+        # Use ThreadPoolExecutor-based timeout (works in Streamlit)
+        return _run_with_timeout(
+            _do_curve_fit_core,
+            timeout_sec,
+            circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs
+        )
     else:
         # No timeout
         return _do_curve_fit_core(circuit, constants, f, Z, initial_guess, bounds, weight_method, kwargs)
@@ -187,19 +205,15 @@ def _do_basinhopping(circuit, constants, f, Z, initial_guess, bounds, kwargs, ti
     Parameters
     ----------
     timeout_sec : float, optional
-        Timeout in seconds. If None or timeout_decorator not available, no timeout is applied.
+        Timeout in seconds. If None, no timeout is applied.
     """
-    if timeout_sec is not None and timeout_sec > 0 and TIMEOUT_AVAILABLE:
-        # Create a timeout-wrapped version of the core function
-        # Use signals=True on Unix/macOS (default), signals=False on Windows
-        @timeout_decorator(timeout_sec)
-        def _fit_with_timeout():
-            return _do_basinhopping_core(circuit, constants, f, Z, initial_guess, bounds, kwargs)
-
-        try:
-            return _fit_with_timeout()
-        except TimeoutDecoratorError:
-            raise FittingTimeoutError(f"basinhopping timed out after {timeout_sec} seconds")
+    if timeout_sec is not None and timeout_sec > 0:
+        # Use ThreadPoolExecutor-based timeout (works in Streamlit)
+        return _run_with_timeout(
+            _do_basinhopping_core,
+            timeout_sec,
+            circuit, constants, f, Z, initial_guess, bounds, kwargs
+        )
     else:
         # No timeout
         return _do_basinhopping_core(circuit, constants, f, Z, initial_guess, bounds, kwargs)
