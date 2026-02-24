@@ -1,0 +1,800 @@
+"""
+Custom fitting functions for EIS circuit analysis
+Supports multiple weight methods: modulus, squared_modulus, proportional
+"""
+
+import warnings
+import numpy as np
+from scipy.linalg import inv
+from scipy.optimize import curve_fit, basinhopping
+
+# Use elements from impedance library
+from impedance.models.circuits.elements import circuit_elements, get_element_from_name
+from impedance.models.circuits.fitting import (
+    buildCircuit, extract_circuit_elements, calculateCircuitLength
+)
+
+
+def rmse(a, b):
+    """
+    Calculate root mean squared error between two vectors.
+    """
+    n = len(a)
+    return np.linalg.norm(a - b) / np.sqrt(n)
+
+
+def set_default_bounds(circuit, constants={}):
+    """
+    Set default bounds for optimization.
+    CPE and La alphas have upper bound of 1, others have np.inf.
+    """
+    extracted_elements = extract_circuit_elements(circuit)
+
+    lower_bounds, upper_bounds = [], []
+    for elem in extracted_elements:
+        raw_element = get_element_from_name(elem)
+        for i in range(check_and_eval(raw_element).num_params):
+            if elem in constants or elem + f'_{i}' in constants:
+                continue
+            if raw_element in ['CPE', 'La'] and i == 1:
+                upper_bounds.append(1)
+            else:
+                upper_bounds.append(np.inf)
+            lower_bounds.append(0)
+
+    bounds = ((lower_bounds), (upper_bounds))
+    return bounds
+
+
+def check_and_eval(element):
+    """
+    Check if an element is valid, then evaluate it.
+    """
+    allowed_elements = circuit_elements.keys()
+    if element not in allowed_elements:
+        raise ValueError(f'{element} not in allowed elements ({allowed_elements})')
+    else:
+        return eval(element, circuit_elements)
+
+
+def wrapCircuit(circuit, constants):
+    """
+    Wrap circuit function so we can pass the circuit string.
+    """
+    def wrappedCircuit(frequencies, *parameters):
+        x = eval(buildCircuit(circuit, frequencies, *parameters,
+                              constants=constants, eval_string='',
+                              index=0)[0],
+                 circuit_elements)
+        y_real = np.real(x)
+        y_imag = np.imag(x)
+        return np.hstack([y_real, y_imag])
+    return wrappedCircuit
+
+
+def circuit_fit(frequencies, impedances, circuit, initial_guess, constants={},
+                bounds=None, weight_method=None, global_opt=False,
+                **kwargs):
+    """
+    Main function for fitting an equivalent circuit to data.
+
+    Parameters
+    ----------
+    frequencies : numpy array
+        Frequencies
+    impedances : numpy array of dtype 'complex128'
+        Impedances
+    circuit : string
+        String defining the equivalent circuit to be fit
+    initial_guess : list of floats
+        Initial guesses for the fit parameters
+    constants : dictionary, optional
+        Parameters and their values to hold constant during fitting
+    bounds : 2-tuple of array_like, optional
+        Lower and upper bounds on parameters
+    weight_method : str, optional
+        Weighting method for fitting:
+        - None: no weighting
+        - 'modulus': weights are 1/|Z|
+        - 'squared_modulus': weights are 1/|Z|^2
+        - 'proportional': weights are |Z|
+    global_opt : bool, optional
+        If True, use basinhopping global optimization
+
+    Returns
+    -------
+    p_values : list of floats
+        Best fit parameters
+    p_errors : list of floats
+        One standard deviation error estimates
+    """
+    f = np.array(frequencies, dtype=float)
+    Z = np.array(impedances, dtype=complex)
+
+    if bounds is None:
+        bounds = set_default_bounds(circuit, constants=constants)
+
+    if not global_opt:
+        if 'maxfev' not in kwargs:
+            kwargs['maxfev'] = 10000  # 1e4 is sufficient
+        if 'ftol' not in kwargs:
+            kwargs['ftol'] = 1e-10  # sufficiently strict
+        if 'xtol' not in kwargs:
+            kwargs['xtol'] = 1e-10  # parameter convergence criterion
+
+        # Calculate weights based on the chosen method
+        if weight_method == 'squared_modulus':
+            # Squared modulus weighting: weights are 1/|Z|^2
+            sigma = np.abs(Z) ** 2
+            kwargs['sigma'] = np.hstack([sigma, sigma])
+        elif weight_method == 'modulus':
+            # Modulus weighting: weights are 1/|Z|
+            sigma = np.abs(Z)
+            kwargs['sigma'] = np.hstack([sigma, sigma])
+        elif weight_method == 'proportional':
+            # Proportional weighting: weights are |Z|
+            weights = np.abs(Z)
+            sigma = 1 / weights
+            kwargs['sigma'] = np.hstack([sigma, sigma])
+        # else: no weighting (weight_method is None or unknown)
+
+        popt, pcov = curve_fit(wrapCircuit(circuit, constants), f,
+                               np.hstack([Z.real, Z.imag]),
+                               p0=initial_guess, bounds=bounds, **kwargs)
+
+        perror = np.sqrt(np.diag(pcov))
+
+    else:
+        if 'seed' not in kwargs:
+            kwargs['seed'] = 0
+
+        def opt_function(x):
+            return rmse(wrapCircuit(circuit, constants)(f, *x),
+                        np.hstack([Z.real, Z.imag]))
+
+        class BasinhoppingBounds(object):
+            def __init__(self, xmin, xmax):
+                self.xmin = np.array(xmin)
+                self.xmax = np.array(xmax)
+
+            def __call__(self, **kwargs):
+                x = kwargs['x_new']
+                tmax = bool(np.all(x <= self.xmax))
+                tmin = bool(np.all(x >= self.xmin))
+                return tmax and tmin
+
+        basinhopping_bounds = BasinhoppingBounds(xmin=bounds[0], xmax=bounds[1])
+        results = basinhopping(opt_function, x0=initial_guess,
+                               accept_test=basinhopping_bounds, **kwargs)
+        popt = results.x
+
+        jac = results.lowest_optimization_result['jac'][np.newaxis]
+        try:
+            pcov = inv(np.dot(jac.T, jac)) * opt_function(popt) ** 2
+            perror = np.sqrt(np.diag(pcov))
+        except (ValueError, np.linalg.LinAlgError):
+            warnings.warn('Failed to compute perror')
+            perror = None
+
+    return popt, perror
+
+
+def calc_rmspe(Z, Z_fit):
+    """
+    Calculate Root Mean Square Percentage Error between measured and fitted impedance.
+
+    Parameters
+    ----------
+    Z : np.ndarray
+        Measured complex impedance
+    Z_fit : np.ndarray
+        Fitted complex impedance
+
+    Returns
+    -------
+    float
+        RMSPE value
+    """
+    Z_real = np.real(Z)
+    Z_fit_real = np.real(Z_fit)
+    Z_imag = -np.imag(Z)
+    Z_fit_imag = -np.imag(Z_fit)
+
+    percentage_errors_real = ((Z_fit_real - Z_real) / Z_real)
+    percentage_errors_imag = ((Z_fit_imag - Z_imag) / Z_imag)
+
+    all_errors = np.concatenate([percentage_errors_real**2, percentage_errors_imag**2])
+    rmspe = np.sqrt(np.mean(all_errors))
+
+    return rmspe
+
+
+def r2sigma(R, S, L):
+    """
+    Calculate ionic conductivity from resistance, area, and thickness.
+
+    Parameters
+    ----------
+    R : float
+        Resistance (Ohm)
+    S : float
+        Area (cm^2)
+    L : float
+        Thickness (cm)
+
+    Returns
+    -------
+    float
+        Ionic conductivity (S/cm)
+    """
+    return L / (R * S)
+
+
+def r2logsigma(R, S, L):
+    """
+    Calculate log10 of ionic conductivity.
+
+    Returns
+    -------
+    float
+        log10(sigma)
+    """
+    return np.log10(L / (R * S))
+
+
+def effective_capacitance(R, Q, n):
+    """
+    Calculate effective capacitance of a CPE in parallel with a resistor.
+
+    Parameters
+    ----------
+    R : float
+        Resistance (Ohm)
+    Q : float
+        CPE pseudo-capacitance (F*s^(n-1))
+    n : float
+        CPE exponent (0 < n <= 1)
+
+    Returns
+    -------
+    float
+        Effective capacitance (F)
+    """
+    return Q**(1/n) * R**((1-n)/n)
+
+
+def sort_ecm_by_cap(circuit_params, circuit_conf, param_names):
+    """
+    Sort the elements of an Equivalent Circuit Model (ECM) by their effective capacitance.
+    CPE elements with smaller effective capacitance come first (bulk before grain boundary).
+
+    Parameters
+    ----------
+    circuit_params : array-like
+        Fitted parameter values
+    circuit_conf : array-like
+        Parameter confidence intervals (errors)
+    param_names : list
+        List of parameter names
+
+    Returns
+    -------
+    dict
+        Dictionary with sorted parameter names as keys and values/errors.
+        Format: {'R1': value, 'R1_error': error, 'CPE1_0': value, ...}
+        Also includes 'effective_caps': {element_name: ceff_value}
+    """
+    elements = []  # List of R-CPE parallel elements
+    elements_woR = []  # List of standalone CPE elements
+    cpes = []  # Effective capacitances for sorting
+
+    circuit_params = np.array(circuit_params)
+    circuit_conf = np.array(circuit_conf) if circuit_conf is not None else np.zeros_like(circuit_params)
+
+    # Find CPE elements (assumed max of 4)
+    for i in range(1, 5):
+        cpe_name = f'CPE{i}'
+        if any(cpe_name in name for name in param_names):
+            my_elements = []
+            my_values = []
+            my_errors = []
+
+            # Check if there's a parallel resistor with same number
+            r_name = f'R{i}'
+            if r_name in param_names:
+                # R-CPE parallel element
+                r_idx = param_names.index(r_name)
+                R = circuit_params[r_idx]
+                R_error = circuit_conf[r_idx]
+                my_elements.append(r_name)
+                my_values.append(R)
+                my_errors.append(R_error)
+
+                q_name = f'CPE{i}_0'
+                q_idx = param_names.index(q_name)
+                Q = circuit_params[q_idx]
+                Q_error = circuit_conf[q_idx]
+                my_elements.append(q_name)
+                my_values.append(Q)
+                my_errors.append(Q_error)
+
+                n_name = f'CPE{i}_1'
+                n_idx = param_names.index(n_name)
+                n = circuit_params[n_idx]
+                n_error = circuit_conf[n_idx]
+                my_elements.append(n_name)
+                my_values.append(n)
+                my_errors.append(n_error)
+
+                # Calculate effective capacitance
+                ceff = effective_capacitance(R=R, Q=Q, n=n)
+                cpes.append(ceff)
+                elements.append((my_elements, my_values, my_errors))
+            else:
+                # Standalone CPE (no parallel resistor)
+                q_name = f'CPE{i}_0'
+                if q_name in param_names:
+                    q_idx = param_names.index(q_name)
+                    my_elements.append(q_name)
+                    my_values.append(circuit_params[q_idx])
+                    my_errors.append(circuit_conf[q_idx])
+
+                    n_name = f'CPE{i}_1'
+                    n_idx = param_names.index(n_name)
+                    my_elements.append(n_name)
+                    my_values.append(circuit_params[n_idx])
+                    my_errors.append(circuit_conf[n_idx])
+
+                    elements_woR.append((my_elements, my_values, my_errors))
+
+    # Sort R-CPE elements by effective capacitance (ascending: bulk first, then gb)
+    if len(cpes) > 0 and len(elements) > 0:
+        sorted_data = sorted(zip(cpes, elements), key=lambda x: x[0])
+        cpes_sorted, elements_sorted = zip(*sorted_data)
+        elements = list(elements_sorted)
+        cpes = list(cpes_sorted)
+
+    # Build result dictionary with new names (R1, R2, ... in order of increasing Ceff)
+    result = {}
+    effective_caps = {}
+
+    # Add sorted R-CPE elements with new numbering
+    for new_idx, (elem_names, elem_values, elem_errors) in enumerate(elements, start=1):
+        # elem_names = ['R2', 'CPE2_0', 'CPE2_1'] (original names)
+        # new_idx = 1, 2, ... (new order by Ceff)
+
+        # R element
+        new_r_name = f'R{new_idx}'
+        result[new_r_name] = elem_values[0]
+        result[f'{new_r_name}_error'] = elem_errors[0]
+
+        # CPE Q element
+        new_q_name = f'CPE{new_idx}_0'
+        result[new_q_name] = elem_values[1]
+        result[f'{new_q_name}_error'] = elem_errors[1]
+
+        # CPE n element
+        new_n_name = f'CPE{new_idx}_1'
+        result[new_n_name] = elem_values[2]
+        result[f'{new_n_name}_error'] = elem_errors[2]
+
+        # Store effective capacitance
+        if new_idx - 1 < len(cpes):
+            effective_caps[new_r_name] = cpes[new_idx - 1]
+
+    # Add standalone CPE elements (keep their original order after R-CPE elements)
+    cpe_offset = len(elements) + 1
+    for idx, (elem_names, elem_values, elem_errors) in enumerate(elements_woR):
+        new_cpe_num = cpe_offset + idx
+
+        new_q_name = f'CPE{new_cpe_num}_0'
+        result[new_q_name] = elem_values[0]
+        result[f'{new_q_name}_error'] = elem_errors[0]
+
+        new_n_name = f'CPE{new_cpe_num}_1'
+        result[new_n_name] = elem_values[1]
+        result[f'{new_n_name}_error'] = elem_errors[1]
+
+    result['effective_caps'] = effective_caps
+
+    return result
+
+
+def suggest_circuit_model(freq, Z, is_spike=True):
+    """
+    Suggest an equivalent circuit model and initial guesses based on impedance data.
+
+    Parameters
+    ----------
+    freq : array-like
+        Frequency values
+    Z : array-like
+        Complex impedance values
+    is_spike : bool
+        Whether the data shows a blocking electrode spike
+
+    Returns
+    -------
+    tuple
+        (circuit_model, initial_guess)
+    """
+    from scipy.signal import savgol_filter, find_peaks
+
+    def find_min_peaks(Y):
+        """Find indices of local minima in phase angle."""
+        if len(Y) < 8:
+            return []
+        try:
+            Y_smooth = savgol_filter(Y, window_length=min(8, len(Y)//2*2+1), polyorder=3)
+            Y_inv = [-i for i in Y_smooth]
+            peaks, _ = find_peaks(np.array(Y_inv), distance=max(10, len(Y)//10))
+            return list(peaks)
+        except:
+            return []
+
+    # Calculate phase angle
+    theta = -np.angle(Z, deg=True)
+
+    # Find minima in phase angle
+    minima_indices = find_min_peaks(theta)
+    minima_indices = sorted(minima_indices)
+
+    # Calculate frequencies, resistances, and capacitances at minima
+    freqs = [freq[i] for i in minima_indices if i < len(freq)]
+    resists = [np.abs(Z)[i] for i in minima_indices if i < len(Z)]
+    caps = []
+    for f, r in zip(freqs, resists):
+        if f > 0 and r > 0:
+            caps.append(1 / (2 * np.pi * f * r))
+
+    # Suggest circuit based on number of semicircles detected
+    if len(minima_indices) == 0:
+        if is_spike:
+            circuit = 'p(R1,CPE1)-CPE2'
+            initial_guess = [1e6, 1e-9, 0.9, 1e-6, 0.9]
+        else:
+            circuit = 'p(R1,CPE1)-p(R2,CPE2)'
+            initial_guess = [1e6, 1e-9, 0.9, 1e10, 1e-6, 0.9]
+    elif len(minima_indices) == 1:
+        if is_spike:
+            circuit = 'p(R1,CPE1)-CPE2'
+            initial_guess = [resists[0], caps[0] if caps else 1e-9, 0.9, 1e-6, 0.9]
+        else:
+            circuit = 'p(R1,CPE1)-p(R2,CPE2)'
+            initial_guess = [resists[0], caps[0] if caps else 1e-9, 0.9, 1e10, 1e-6, 0.9]
+    elif len(minima_indices) >= 2:
+        if is_spike:
+            circuit = 'p(R1,CPE1)-p(R2,CPE2)-CPE3'
+            initial_guess = [
+                resists[0], caps[0] if len(caps) > 0 else 1e-9, 0.9,
+                resists[1] if len(resists) > 1 else 1e6,
+                caps[1] if len(caps) > 1 else 1e-6, 0.9,
+                1e-6, 0.9
+            ]
+        else:
+            circuit = 'p(R1,CPE1)-p(R2,CPE2)-p(R3,CPE3)'
+            initial_guess = [
+                resists[0], caps[0] if len(caps) > 0 else 1e-9, 0.9,
+                resists[1] if len(resists) > 1 else 1e6,
+                caps[1] if len(caps) > 1 else 1e-6, 0.9,
+                1e10, 1e-6, 0.9
+            ]
+    else:
+        circuit = 'p(R1,CPE1)-p(R2,CPE2)-p(R3,CPE3)'
+        initial_guess = [1e6, 1e-9, 0.9, 1e6, 1e-6, 0.9, 1e10, 1e-6, 0.9]
+
+    return circuit, initial_guess
+
+
+def auto_fit(freq, Z, circuit_model=None, is_spike=True, constants={}):
+    """
+    Automatically fit an equivalent circuit model to impedance data.
+
+    Parameters
+    ----------
+    freq : array-like
+        Frequency values
+    Z : array-like
+        Complex impedance values
+    circuit_model : str, optional
+        Circuit model to use. If None, will be auto-suggested.
+    is_spike : bool
+        Whether the data shows a blocking electrode spike
+    constants : dict
+        Constant parameters in the model
+
+    Returns
+    -------
+    tuple
+        (circuit_params, circuit_conf, Z_fit, rmspe, circuit_model, param_names)
+    """
+    from impedance.models.circuits import CustomCircuit
+
+    # Suggest circuit if not provided
+    if circuit_model is None:
+        circuit_model, initial_guess = suggest_circuit_model(freq, Z, is_spike=is_spike)
+    else:
+        # Generate initial guess for provided model
+        n_params = calculateCircuitLength(circuit_model)
+        initial_guess = []
+        # Parse circuit to generate appropriate initial guesses
+        elements = extract_circuit_elements(circuit_model)
+        for elem in elements:
+            raw_elem = get_element_from_name(elem)
+            if raw_elem == 'R':
+                initial_guess.append(1e3)
+            elif raw_elem == 'CPE':
+                initial_guess.append(1e-9)  # Q
+                initial_guess.append(0.9)   # n
+            elif raw_elem == 'C':
+                initial_guess.append(1e-9)
+            elif raw_elem == 'W':
+                initial_guess.append(1e-3)
+            else:
+                initial_guess.append(1.0)
+
+    # Multi-pass fitting with different weight methods
+    weight_methods = [None, 'modulus', None]
+
+    circuit = CustomCircuit(circuit_model, initial_guess=initial_guess, constants=constants)
+
+    for weight_method in weight_methods:
+        try:
+            circuit.fit(freq, Z, weight_method=weight_method)
+            # Update initial guess for next iteration
+            circuit = CustomCircuit(circuit_model, initial_guess=circuit.parameters_, constants=constants)
+        except Exception as e:
+            continue
+
+    Z_fit = circuit.predict(freq)
+    rmspe = calc_rmspe(Z, Z_fit)
+
+    param_names, _ = circuit.get_param_names()
+
+    return circuit.parameters_, circuit.conf_, Z_fit, rmspe, circuit_model, param_names
+
+
+class BlackBoxOptEIS:
+    """
+    Black-box optimization for EIS circuit fitting using Optuna.
+    """
+
+    def __init__(self, freq, Z, constants={},
+                 model_list=None,
+                 weight_list=['modulus', None],
+                 r_range=(1e0, 1e8),
+                 cpe_q_range=(1e-12, 1e-4),
+                 n_trials=200,
+                 timeout=30,
+                 early_stop_rmspe=0.03):
+        """
+        Initialize the optimizer.
+
+        Parameters
+        ----------
+        freq : array-like
+            Frequency values
+        Z : array-like
+            Complex impedance values
+        constants : dict
+            Constant parameters
+        model_list : list
+            List of circuit models to try
+        weight_list : list
+            List of weight methods to try
+        r_range : tuple
+            Range for resistance values (min, max)
+        cpe_q_range : tuple
+            Range for CPE Q values (min, max)
+        n_trials : int
+            Maximum number of optimization trials
+        timeout : int
+            Maximum optimization time in seconds
+        early_stop_rmspe : float
+            Stop optimization if RMSPE falls below this value
+        """
+        self.freq = np.array(freq)
+        self.Z = np.array(Z)
+        self.constants = constants
+
+        if model_list is None:
+            self.model_list = [
+                'p(R1,CPE1)-CPE2',
+                'p(R1,CPE1)-p(R2,CPE2)-CPE3'
+            ]
+        else:
+            self.model_list = model_list
+
+        self.weight_list = weight_list
+        self.r_range = r_range
+        self.cpe_q_range = cpe_q_range
+        self.n_trials = n_trials
+        self.timeout = timeout
+        self.early_stop_rmspe = early_stop_rmspe
+
+        self.best_params = None
+        self.best_rmspe = float('inf')
+
+    def _fit_circuit(self, model, initial_guess, weight_method):
+        """Fit a single circuit configuration."""
+        from impedance.models.circuits import CustomCircuit
+
+        try:
+            # Use our custom circuit_fit function which supports weight_method
+            popt, perror = circuit_fit(
+                self.freq, self.Z,
+                model,
+                initial_guess,
+                constants=self.constants,
+                weight_method=weight_method
+            )
+
+            # Create circuit with fitted parameters
+            circuit = CustomCircuit(model, initial_guess=list(popt), constants=self.constants)
+            circuit.parameters_ = popt
+            circuit.conf_ = perror
+
+            Z_fit = circuit.predict(self.freq)
+            rmspe = calc_rmspe(self.Z, Z_fit)
+            return circuit, Z_fit, rmspe
+        except Exception:
+            return None, None, float('inf')
+
+    def _objective(self, trial):
+        """Optuna objective function."""
+        # Select model
+        model = trial.suggest_categorical('model', self.model_list)
+
+        # Select weight method
+        weight = trial.suggest_categorical('weight', self.weight_list)
+
+        # Generate initial guesses based on model
+        if model == 'p(R1,CPE1)-CPE2':
+            r1 = trial.suggest_float('r1', self.r_range[0], self.r_range[1], log=True)
+            cpe1 = trial.suggest_float('cpe1', self.cpe_q_range[0], self.cpe_q_range[1], log=True)
+            initial_guess = [r1, cpe1, 0.9, 1e-6, 0.9]
+        elif model == 'p(R1,CPE1)-p(R2,CPE2)-CPE3':
+            r1 = trial.suggest_float('r1', self.r_range[0], self.r_range[1], log=True)
+            cpe1 = trial.suggest_float('cpe1', self.cpe_q_range[0], self.cpe_q_range[1], log=True)
+            r2 = trial.suggest_float('r2', self.r_range[0], self.r_range[1], log=True)
+            cpe2 = trial.suggest_float('cpe2', self.cpe_q_range[0], self.cpe_q_range[1], log=True)
+            initial_guess = [r1, cpe1, 0.9, r2, cpe2, 0.9, 1e-6, 0.9]
+        else:
+            # Generic handling for other models
+            n_params = calculateCircuitLength(model)
+            initial_guess = []
+            param_idx = 0
+            for i in range(n_params):
+                if param_idx % 3 == 0:  # R
+                    initial_guess.append(trial.suggest_float(f'p{i}', self.r_range[0], self.r_range[1], log=True))
+                elif param_idx % 3 == 1:  # Q
+                    initial_guess.append(trial.suggest_float(f'p{i}', self.cpe_q_range[0], self.cpe_q_range[1], log=True))
+                else:  # n
+                    initial_guess.append(0.9)
+                param_idx += 1
+
+        circuit, Z_fit, rmspe = self._fit_circuit(model, initial_guess, weight)
+        return rmspe
+
+    def optimize(self, progress_callback=None):
+        """
+        Run the optimization.
+
+        Parameters
+        ----------
+        progress_callback : callable, optional
+            Function to call with progress updates
+
+        Returns
+        -------
+        dict
+            Best parameters found
+        """
+        try:
+            import optuna
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+            sampler = optuna.samplers.TPESampler(n_startup_trials=min(50, self.n_trials // 4))
+            study = optuna.create_study(direction='minimize', sampler=sampler)
+
+            def callback(study, trial):
+                if progress_callback:
+                    progress_callback(trial.number, self.n_trials, study.best_value)
+                if study.best_value <= self.early_stop_rmspe:
+                    study.stop()
+
+            study.optimize(
+                self._objective,
+                n_trials=self.n_trials,
+                timeout=self.timeout,
+                callbacks=[callback],
+                show_progress_bar=False
+            )
+
+            self.best_params = study.best_params
+            self.best_rmspe = study.best_value
+
+            return study.best_params
+
+        except ImportError:
+            # Fallback if optuna not installed - simple grid search
+            best_rmspe = float('inf')
+            best_params = None
+
+            for model in self.model_list:
+                for weight in self.weight_list:
+                    # Try a few random initial guesses
+                    for _ in range(10):
+                        if model == 'p(R1,CPE1)-CPE2':
+                            r1 = np.random.uniform(np.log10(self.r_range[0]), np.log10(self.r_range[1]))
+                            cpe1 = np.random.uniform(np.log10(self.cpe_q_range[0]), np.log10(self.cpe_q_range[1]))
+                            initial_guess = [10**r1, 10**cpe1, 0.9, 1e-6, 0.9]
+                        else:
+                            continue
+
+                        circuit, Z_fit, rmspe = self._fit_circuit(model, initial_guess, weight)
+                        if rmspe < best_rmspe:
+                            best_rmspe = rmspe
+                            best_params = {'model': model, 'weight': weight, 'r1': initial_guess[0], 'cpe1': initial_guess[1]}
+
+            self.best_params = best_params
+            self.best_rmspe = best_rmspe
+            return best_params
+
+    def fit_best(self):
+        """
+        Fit the circuit using the best parameters found.
+
+        Returns
+        -------
+        tuple
+            (circuit_params, circuit_conf, Z_fit, rmspe, model, param_names)
+        """
+        if self.best_params is None:
+            self.optimize()
+
+        if self.best_params is None:
+            return None, None, None, float('inf'), self.model_list[0], []
+
+        model = self.best_params.get('model', self.model_list[0])
+        weight = self.best_params.get('weight', None)
+
+        # Build initial guess from best params
+        if model == 'p(R1,CPE1)-CPE2':
+            initial_guess = [
+                self.best_params.get('r1', 1e3),
+                self.best_params.get('cpe1', 1e-9),
+                0.9, 1e-6, 0.9
+            ]
+        elif model == 'p(R1,CPE1)-p(R2,CPE2)-CPE3':
+            initial_guess = [
+                self.best_params.get('r1', 1e3),
+                self.best_params.get('cpe1', 1e-9),
+                0.9,
+                self.best_params.get('r2', 1e3),
+                self.best_params.get('cpe2', 1e-6),
+                0.9, 1e-6, 0.9
+            ]
+        else:
+            # Generic model - need to build initial guess from optimized params
+            n_params = calculateCircuitLength(model)
+            initial_guess = []
+            # Try to get parameters from best_params
+            for i in range(n_params):
+                key = f'p{i}'
+                if key in self.best_params:
+                    initial_guess.append(self.best_params[key])
+                elif i % 3 == 0:  # R
+                    initial_guess.append(self.best_params.get('r1', 1e3))
+                elif i % 3 == 1:  # Q
+                    initial_guess.append(self.best_params.get('cpe1', 1e-9))
+                else:  # n
+                    initial_guess.append(0.9)
+
+        circuit, Z_fit, rmspe = self._fit_circuit(model, initial_guess, weight)
+
+        if circuit is not None:
+            param_names, _ = circuit.get_param_names()
+            return circuit.parameters_, circuit.conf_, Z_fit, rmspe, model, param_names
+        else:
+            return None, None, None, float('inf'), model, []

@@ -419,7 +419,7 @@ def sidebar_file_manager():
                 # Gray out hidden files
                 button_type = "primary" if is_selected else "secondary"
                 display_name = f"- {filename}" if is_hidden else filename
-                if st.button(display_name, key=f"select_{i}", width="stretch", type=button_type):
+                if st.button(display_name, key=f"select_{i}", use_container_width=True, type=button_type):
                     st.session_state.selected_file = filename
 
             with col2:
@@ -465,7 +465,8 @@ def sidebar_file_manager():
                     file_name=f"eis_{safe_sample_name}_{datetime.now().strftime('%Y%m%d')}.itx",
                     mime="text/plain",
                     use_container_width=True,
-                    help="Igor Text File (data + plots)"
+                    help="Igor Text File (data + plots)",
+                    key="dl_btn_ITX_0"
                 )
             with igor_col2:
                 st.download_button(
@@ -474,7 +475,8 @@ def sidebar_file_manager():
                     file_name="eis_procedures.ipf",
                     mime="text/plain",
                     use_container_width=True,
-                    help="Igor Procedure File (for top axis)"
+                    help="Igor Procedure File (for top axis)",
+                    key="dl_btn_IPF_0"
                 )
 
     # Reset button at bottom
@@ -503,7 +505,7 @@ def sidebar_data_view():
             "Z'' (Ohm)": np.imag(Z)
         })
 
-        st.dataframe(df, height=250, width="stretch")
+        st.dataframe(df, height=250, use_container_width=True)
 
         # Temperature input for Arrhenius mode
         if st.session_state.arrhenius_mode:
@@ -1966,7 +1968,7 @@ Ea = –slope × R × ln(10) × 1000
 
         with ctrl_col4:
             st.caption("")  # Spacer
-            if st.button("Reset Delete", width="stretch"):
+            if st.button("Reset Delete", use_container_width=True):
                 st.session_state.deleted_points = []
                 # Clear the text input widget value
                 st.session_state["delete_points_input"] = ""
@@ -2101,7 +2103,7 @@ def circuit_analysis_panel():
     btn_col1, btn_col2, btn_col3, btn_col4, btn_col5, btn_col6, btn_col7 = st.columns(7)
 
     with btn_col1:
-        fit_clicked = st.button("Fit", width="stretch", type="primary", help="Fit circuit with current initial values")
+        fit_clicked = st.button("Fit", use_container_width=True, type="primary", help="Fit circuit with current initial values")
 
     with btn_col2:
         mc_fit_help = """**Monte Carlo Fit**
@@ -2111,7 +2113,7 @@ Repeats Add Noise → Fit multiple times to escape local minima.
 - Adds random noise and fits repeatedly
 - Keeps the best result (lowest RMSPE)
 - Set iterations in Fit Settings"""
-        mc_fit_clicked = st.button("MC Fit", width="stretch", help=mc_fit_help)
+        mc_fit_clicked = st.button("MC Fit", use_container_width=True, help=mc_fit_help)
 
     with btn_col3:
         bayesian_fit_help = """**Bayesian Fit**
@@ -2122,7 +2124,7 @@ Uses Bayesian optimization (Optuna) to find optimal parameters.
 - Set trials/timeout in Bayesian Fit Settings
 
 **Note:** Requires 'optuna' package."""
-        bayesian_fit_clicked = st.button("Bayesian", width="stretch", help=bayesian_fit_help)
+        bayesian_fit_clicked = st.button("Bayesian", use_container_width=True, help=bayesian_fit_help)
 
     with btn_col4:
         auto_fit_help = """**Auto Fit**
@@ -2131,7 +2133,7 @@ Combines Bayesian + Monte Carlo fitting.
 1. First runs Bayesian optimization
 2. Then refines with Monte Carlo iterations
 - Best for comprehensive parameter search"""
-        auto_fit_clicked = st.button("Auto Fit", width="stretch", help=auto_fit_help)
+        auto_fit_clicked = st.button("Auto Fit", use_container_width=True, help=auto_fit_help)
 
     with btn_col5:
         batch_fit_help = """**Batch Fit**
@@ -2140,7 +2142,7 @@ Fits selected files using current initial values.
 - Select files in Batch Fit Settings
 - Uses current parameters as initial guess
 - Propagates fit results to next file"""
-        batch_fit_clicked = st.button("Batch", width="stretch", help=batch_fit_help)
+        batch_fit_clicked = st.button("Batch", use_container_width=True, help=batch_fit_help)
 
     with btn_col6:
         mc_batch_help = """**MC-Batch Fit**
@@ -2149,7 +2151,7 @@ Monte Carlo Batch fitting for selected files.
 - Uses existing fit result as initial guess if available
 - Otherwise uses previous file's result
 - Good for refining batch fits"""
-        mc_batch_clicked = st.button("MC-Batch", width="stretch", help=mc_batch_help)
+        mc_batch_clicked = st.button("MC-Batch", use_container_width=True, help=mc_batch_help)
 
     with btn_col7:
         auto_batch_help = """**Auto-Batch Fit**
@@ -2158,7 +2160,7 @@ Combines Auto Fit (Bayesian + MC) for each file.
 - Uses Bayesian + MC for each file
 - Select files in Batch Fit Settings
 - Best for initial fitting of many files"""
-        auto_batch_clicked = st.button("Auto-Batch", width="stretch", help=auto_batch_help)
+        auto_batch_clicked = st.button("Auto-Batch", use_container_width=True, help=auto_batch_help)
 
     # Fit Settings (expandable)
     with st.expander("Fit Settings", expanded=False):
@@ -4375,7 +4377,7 @@ Combines Auto Fit (Bayesian + MC) for each file.
                     ]
 
             df = pd.DataFrame(table_data)
-            st.dataframe(df, hide_index=True, width="stretch")
+            st.dataframe(df, hide_index=True, use_container_width=True)
 
         # Show R labels input if R elements exist
         r_values = data.get('r_values', {})
@@ -4667,7 +4669,7 @@ Patterns are applied sequentially. The first number in the final result is used 
 
     # Sort R keys (R1, R2, R3, ...)
     sorted_r_keys = sorted(all_r_keys, key=lambda x: int(x[1:]) if x[1:].isdigit() else 0)
-
+    
     for filename, data in st.session_state.files.items():
         if data.get('circuit_params') is None:
             continue
@@ -4841,7 +4843,8 @@ Patterns are applied sequentially. The first number in the final result is used 
                 data=csv,
                 file_name=f"eis_{safe_sample_name}_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
-                use_container_width=True
+                use_container_width=True,
+                key="dl_btn_csv"
             )
         with export_col2:
             # Generate Igor file
@@ -4857,7 +4860,8 @@ Patterns are applied sequentially. The first number in the final result is used 
                 file_name=f"eis_{safe_sample_name}_{datetime.now().strftime('%Y%m%d')}.itx",
                 mime="text/plain",
                 use_container_width=True,
-                help="Igor Text File (data + plots)"
+                help="Igor Text File (data + plots)",
+                key="dl_btn_ITX_1"
             )
         with export_col3:
             st.download_button(
@@ -4866,7 +4870,8 @@ Patterns are applied sequentially. The first number in the final result is used 
                 file_name="eis_procedures.ipf",
                 mime="text/plain",
                 use_container_width=True,
-                help="Igor Procedure File (for top axis)"
+                help="Igor Procedure File (for top axis)",
+                key="dl_btn_IPF_1"
             )
 
 
@@ -5046,7 +5051,8 @@ def save_session():
         label="Download Session (JSON)",
         data=json_str,
         file_name=f"eis_{safe_sample_name}_{datetime.now().strftime('%Y%m%d')}.json",
-        mime="application/json"
+        mime="application/json",
+        key="dl_btn_JSON"
     )
 
     st.success("Session saved!")
